@@ -48,3 +48,9 @@ next-env.d.ts
 
 # Nix build output
 /result
+
+# Local Jupyter state
+/.jupyter/
+/.jupyter_ystore.db*
+.ipynb_checkpoints/
+__pycache__/

@@ -4,6 +4,10 @@ use aws_sdk_s3::config::{ConfigBag, Credentials, Intercept, Region, RuntimeCompo
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+#[cfg(target_os = "linux")]
+#[path = "raw_cpu.rs"]
+mod raw_cpu;
+
 #[derive(Clone, Debug, Default)]
 struct BeforeWire(Arc<Mutex<Option<Instant>>>);
 
@@ -19,6 +23,8 @@ impl Intercept for BeforeWire {
         _: &mut ConfigBag,
     ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let stop = Instant::now();
+        #[cfg(target_os = "linux")]
+        raw_cpu::end_window();
         let request = context.request();
         assert_eq!(request.method(), "PUT");
         assert!(request.headers().get("authorization").is_some());
@@ -27,10 +33,7 @@ impl Intercept for BeforeWire {
     }
 }
 
-#[tokio::test]
-#[ignore = "release-mode encryption timing"]
-async fn profile_encryption_before_wire() {
-    let stop = BeforeWire::default();
+fn benchmark_client(stop: BeforeWire) -> Client {
     let config = aws_sdk_s3::Config::builder()
         .behavior_version_latest()
         .region(Region::new("us-east-1"))
@@ -44,9 +47,16 @@ async fn profile_encryption_before_wire() {
         .endpoint_url("http://127.0.0.1:1")
         .force_path_style(true)
         .retry_config(aws_sdk_s3::config::retry::RetryConfig::disabled())
-        .interceptor(stop.clone())
+        .interceptor(stop)
         .build();
-    let client = Client::from_conf(config);
+    Client::from_conf(config)
+}
+
+#[tokio::test]
+#[ignore = "release-mode encryption timing"]
+async fn profile_encryption_before_wire() {
+    let stop = BeforeWire::default();
+    let client = benchmark_client(stop.clone());
     let bucket = format!("b3e1-{}", "a".repeat(32));
     let key = envelope::random_key().unwrap();
     let temp = tempfile::tempdir().unwrap();
@@ -78,6 +88,7 @@ async fn profile_encryption_before_wire() {
                         &client,
                         &path,
                         bytes as u64,
+                        || {},
                     )
                     .await
                 };

@@ -83,9 +83,19 @@
     in {
       packages.${system} = { default = brows3; inherit frontend; };
       checks.${system} = { inherit frontend brows3; };
-      devShells.${system}.default = pkgs.mkShell {
-        packages = buildTools ++ [ rust node pnpm pkgs.jq pkgs.patchelf ];
-        buildInputs = nativeLibraries;
+      devShells.${system} = rec {
+        default = pkgs.mkShell {
+          packages = buildTools ++ [ rust node pnpm pkgs.jq pkgs.patchelf ];
+          buildInputs = nativeLibraries;
+        };
+        notebook = pkgs.mkShell {
+          inputsFrom = [ default ];
+          BROWS3_PROFILER_LIBRARY = "${pkgs.gperftools}/lib/libprofiler.so";
+          packages = [
+            pkgs.pprof pkgs.binutils
+            (pkgs.python3.withPackages (ps: [ ps.jupyterlab ps.ipykernel ps.matplotlib ]))
+          ];
+        };
       };
     };
 }

@@ -187,6 +187,7 @@ pub(crate) async fn prepare_plain_upload(
     client: &Client,
     path: &std::path::Path,
     size: u64,
+    preparing: impl FnOnce(),
 ) -> Instant {
     let job = TransferJob::new(
         TransferType::Upload,
@@ -199,6 +200,7 @@ pub(crate) async fn prepare_plain_upload(
     );
     let manager = TransferManager::new();
     let start = Instant::now();
+    preparing();
     manager
         .upload_file(client, &job, "application/octet-stream")
         .await
