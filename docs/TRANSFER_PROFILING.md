@@ -1,8 +1,25 @@
-# Paired single-file transfer profiles
+# Encrypted upload timing
+
+## Encryption start to the wire
+
+Run this release profile from the repository root. On x86-64 Linux the pinned toolchain is available through `nix develop`.
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml --locked --release --lib \
+  profile_encryption_before_wire -- --ignored --nocapture --test-threads=1
+```
+
+The protected timer starts immediately before `encrypt_object` reads the source. It includes authenticated encryption into the production temporary file, rewind, request-body preparation and AWS SDK request signing. The stop timestamp is the first instruction of the SDK pre-transmit hook for a signed object PUT. The hook then terminates the request before HTTP transport. Both the already-unlocked key and the open source and temporary files are ready when the timer starts.
+
+The same hook measures ordinary preparation starting at the production plain uploader's entry, after the transfer job has been created. It prepares a streaming request body. The protected uploader stages the entire ciphertext before it can send. Source creation and browser interaction take place outside both timers.
+
+Each `BROWS3_ENCRYPTION_NS` JSON record contains the payload size, 21 protected samples in `samples_ns` and the paired ordinary samples in `plain_samples_ns`. Both arrays use nanoseconds and exclude one warm-up per mode. The two modes alternate order. The 4 KiB and 8 MiB workloads both use single PUT.
+
+## End-to-end transfer profiles
 
 **Measurement status:** No timings are available from the CSF worker for baseline `24b02bd0aea2bf2bbfb6ecb0b02cc35586700cd8`. Cargo and a disposable S3 service were unavailable; the worker could not execute the store's Cargo binary. The repository locks `aws-sdk-s3` to 1.121.0, not the available vendored 1.159.0. CSF's Go/flake preflight is not a Rust build. An unrun benchmark, sample data, crypto-only benchmark, or SDK-only benchmark is not a transfer profile.
 
-## What is timed
+### End-to-end timing boundary
 
 Wall time starts immediately before the production Rust transfer executor and ends when it returns, separately for upload and download. Plain mode uses `TransferManager::execute_job`; protected mode uses `transfer_with_client`, the dispatch called by the UI's native upload/download commands. It includes the session check, per-operation descriptor GET, file I/O, object requests and body encryption/authentication, with identical ordinary object keys in both modes. Fixture setup generates production descriptors and publishes them to fresh physical buckets with the SDK. The production unlock (including passphrase derivation) is **outside** the per-file timer and reported separately as `BROWS3_UNLOCK`. `BROWS3_REFUSED` records separate locked, missing-descriptor and replaced-descriptor refusal probes. UI/IPC, queue wait, credential/client resolution, verification and cleanup are excluded. This benchmark does not establish that frontend routing selects the right command. Stored bytes are the **actual raw GET body length**, not protocol traffic, heap use, disk allocation, or the application's progress counter.
 

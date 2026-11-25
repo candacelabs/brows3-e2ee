@@ -181,3 +181,27 @@ async fn profile_plain_single_file() {
     )
     .await;
 }
+
+/// Time the ordinary upload's preparation with the same SDK transport probe.
+pub(crate) async fn prepare_plain_upload(
+    client: &Client,
+    path: &std::path::Path,
+    size: u64,
+) -> Instant {
+    let job = TransferJob::new(
+        TransferType::Upload,
+        "profile".into(),
+        "plain-benchmark".into(),
+        Some("us-east-1".into()),
+        "object".into(),
+        path.to_path_buf(),
+        size,
+    );
+    let manager = TransferManager::new();
+    let start = Instant::now();
+    manager
+        .upload_file(client, &job, "application/octet-stream")
+        .await
+        .unwrap_err();
+    start
+}

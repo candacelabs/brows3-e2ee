@@ -17,6 +17,10 @@ use zeroize::Zeroizing;
 #[path = "test_s3/protected_profile.rs"]
 mod protected_profile;
 
+#[cfg(test)]
+#[path = "test_s3/encryption_timing.rs"]
+mod encryption_timing;
+
 static TRANSFERS: Semaphore = Semaphore::const_new(1);
 
 fn failed() -> AppError {
@@ -76,6 +80,17 @@ pub(crate) async fn upload(
     path: &Path,
     secret: envelope::Key,
 ) -> Result<()> {
+    upload_with_start(client, bucket, key, path, secret, || {}).await
+}
+
+async fn upload_with_start(
+    client: &Client,
+    bucket: &str,
+    key: &str,
+    path: &Path,
+    secret: envelope::Key,
+    encryption_started: impl FnOnce() + Send + 'static,
+) -> Result<()> {
     validate(path)?;
     let context = bucket_crypto::context(bucket, key).map_err(|_| failed())?;
     let _permit = TRANSFERS
@@ -92,6 +107,7 @@ pub(crate) async fn upload(
             return Err(io::Error::other("File exceeds limit"));
         }
         let mut ciphertext = tempfile::tempfile()?;
+        encryption_started();
         envelope::encrypt_object(source, &mut ciphertext, &secret, &context)?;
         ciphertext.rewind()?;
         Ok(ciphertext)
