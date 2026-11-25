@@ -3,7 +3,7 @@
 <html lang="en">
 <head><meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>encryption-before-wire</title><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
+<title>Brows3 E2EE · Encryption profile</title><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
 <style type="text/css">
     pre { line-height: 125%; }
 td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
@@ -7802,7 +7802,8 @@ a.anchor-link {
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="Encryption-before-the-first-byte-goes-on-the-wire">Encryption before the first byte goes on the wire<a class="anchor-link" href="#Encryption-before-the-first-byte-goes-on-the-wire">¶</a></h1><p><a href="encryption-before-wire.ipynb" download>Download notebook</a> · <a href="raw-captures.zip" download>Download raw CPU profiles</a> · <a href="notebook-files.zip" download>Download notebook and supporting files</a></p><p>Where does Brows3 spend CPU while preparing a signed S3 upload? The plots below use sampled call stacks from the production Rust upload path. The encrypted window opens at <code>encrypt_object</code>, with the key unlocked and files open, and includes ciphertext staging and AWS request signing. The plain window opens at the ordinary uploader’s entry. Both close at the AWS SDK pre-transmit hook, which cancels the signed PUT before dispatch.</p>
+<p><a href="https://www.brows3.app/">Brows3</a></p>
+<h1 id="Brows3-E2EE">Brows3 E2EE<a class="anchor-link" href="#Brows3-E2EE">¶</a></h1><p><a href="encryption-before-wire.ipynb" download>Download notebook</a> · <a href="raw-captures.zip" download>Download raw CPU profiles</a> · <a href="notebook-files.zip" download>Download notebook and supporting files</a></p><h2 id="Encryption-before-the-first-byte-goes-on-the-wire">Encryption before the first byte goes on the wire<a class="anchor-link" href="#Encryption-before-the-first-byte-goes-on-the-wire">¶</a></h2><p>Where does Brows3 spend CPU while preparing a signed S3 upload? The plots below use sampled call stacks from the production Rust upload path. The encrypted window opens at <code>encrypt_object</code>, with the key unlocked and files open, and includes ciphertext staging and AWS request signing. The plain window opens at the ordinary uploader’s entry. Both close at the AWS SDK pre-transmit hook, which cancels the signed PUT before dispatch.</p>
 </div>
 </div>
 </div>
