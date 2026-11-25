@@ -21,8 +21,13 @@ binary=$(jq -er --slurp '[.[] | select(.reason == "compiler-artifact" and .profi
 {
   date -u +%FT%TZ
   rustc --version
-  git rev-parse HEAD
-  if ! git diff --quiet HEAD -- src-tauri; then echo "Includes local Rust source changes"; fi
+  if [[ -f .brows3-source-revision ]]; then
+    cat .brows3-source-revision
+  elif git rev-parse --verify HEAD 2>/dev/null; then
+    if ! git diff --quiet HEAD -- src-tauri; then echo "Includes local Rust source changes"; fi
+  else
+    echo "Source archive (revision unavailable)"
+  fi
   uname -smr
   echo "500 Hz requested, 3 seconds accumulated pre-transmit wall time per profile"
 } > "$out/conditions.txt"
