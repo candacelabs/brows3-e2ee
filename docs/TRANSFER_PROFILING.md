@@ -2,7 +2,21 @@
 
 ## Encryption start to the wire
 
-Run this release profile from the repository root. On x86-64 Linux the pinned toolchain is available through `nix develop`.
+The [executed comparison notebook](benchmarks/encryption-before-wire.ipynb) contains the sampled CPU functions, their callers, and paired wall-clock timings for 4 KiB and 8 MiB files. Start Jupyter from the repository root on x86-64 Linux.
+
+```bash
+nix develop .#notebook -c jupyter lab docs/benchmarks/encryption-before-wire.ipynb
+```
+
+Set `run_raw_capture = True` in **Run raw capture** and run all cells to save and plot a fresh set. To collect the same files from the shell, supply a new directory.
+
+```bash
+nix develop .#notebook -c bash scripts/capture-encryption-profile.sh ./src-tauri/target/my-capture
+```
+
+Each capture produces four original gperftools `.prof` files, four symbolized pprof `.pb.gz` profiles and four compressed weighted stack listings used by the notebook. Inspect a symbolized profile with `pprof -top path/to/8mib-encrypted.pb.gz` in the notebook shell. The sample filter opens at the start of preparation and closes at the signed PUT pre-transmit hook across all process threads. Each case warms up once and accumulates three seconds inside the window. CPU samples attribute work while a thread executes. The separate latency benchmark also includes time spent waiting.
+
+Run the release latency benchmark from the repository root. On x86-64 Linux the pinned toolchain is available through `nix develop`.
 
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml --locked --release --lib \
