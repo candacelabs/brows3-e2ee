@@ -1,12 +1,13 @@
+
 running 1 test
-test commands::encrypted::encryption_timing::raw_cpu::capture_cpu_before_wire ... PROFILE: interrupts/evictions/bytes = 734/56/115768
-BROWS3_CPU 4kib plain 76026 iterations
-PROFILE: interrupts/evictions/bytes = 709/110/81848
-BROWS3_CPU 4kib encrypted 51368 iterations
-PROFILE: interrupts/evictions/bytes = 700/82/115976
-BROWS3_CPU 8mib plain 78814 iterations
-PROFILE: interrupts/evictions/bytes = 750/491/54520
-BROWS3_CPU 8mib encrypted 530 iterations
+test commands::encrypted::encryption_timing::raw_cpu::capture_cpu_before_wire ... PROFILE: interrupts/evictions/bytes = 339/22/56672
+BROWS3_CPU 4kib plain 29357 iterations
+PROFILE: interrupts/evictions/bytes = 486/36/52344
+BROWS3_CPU 4kib encrypted 14148 iterations
+PROFILE: interrupts/evictions/bytes = 395/21/63368
+BROWS3_CPU 8mib plain 35580 iterations
+PROFILE: interrupts/evictions/bytes = 731/64/32880
+BROWS3_CPU 8mib encrypted 71 iterations
 ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 171 filtered out; finished in 13.61s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 173 filtered out; finished in 13.44s
