@@ -1,4 +1,8 @@
-# Brows3
+[Brows3](https://www.brows3.app/)
+
+# Brows3 E2EE
+
+[Encryption profile and raw captures](https://candacelabs.github.io/brows3-e2ee/)
 
 [![Release](https://img.shields.io/github/v/release/rgcsekaraa/brows3)](https://github.com/rgcsekaraa/brows3/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
