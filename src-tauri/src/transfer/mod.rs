@@ -1,5 +1,7 @@
 pub mod controls;
+pub(crate) mod bucket_crypto;
 pub mod download;
+pub(crate) mod envelope;
 pub mod manager;
 pub mod public_url;
 pub mod remote;

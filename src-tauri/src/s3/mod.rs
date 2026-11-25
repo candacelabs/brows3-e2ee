@@ -1,4 +1,5 @@
 pub mod client;
+pub(crate) mod bucket_mode;
 pub mod content_type;
 pub mod listing;
 pub mod multipart;
