@@ -14,6 +14,8 @@ Set `run_raw_capture = True` in **Run raw capture** and run all cells to save an
 nix develop .#notebook -c bash scripts/capture-encryption-profile.sh ./src-tauri/target/my-capture
 ```
 
+The fork publishes the [raw profiles and runnable archive](https://github.com/candacelabs/brows3-e2ee/releases/tag/benchmark-encryption-2026-11-25) as prerelease assets. The checkout includes weighted counts for the five stack frames plotted by the notebook.
+
 Each capture produces four original gperftools `.prof` files, four symbolized pprof `.pb.gz` profiles and four compressed weighted stack listings used by the notebook. Inspect a symbolized profile with `pprof -top path/to/8mib-encrypted.pb.gz` in the notebook shell. The sample filter opens at the start of preparation and closes at the signed PUT pre-transmit hook across all process threads. Each case warms up once and accumulates three seconds inside the window. CPU samples attribute work while a thread executes. The separate latency benchmark also includes time spent waiting.
 
 Run the release latency benchmark from the repository root. On x86-64 Linux the pinned toolchain is available through `nix develop`.

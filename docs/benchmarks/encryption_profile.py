@@ -110,6 +110,11 @@ def read_cpu_stacks(path):
 
 
 def collect_cpu_profiles(directory):
+    summary = directory / "plot-stacks.json"
+    if summary.is_file():
+        rows = json.loads(summary.read_text())
+        return {(size, mode): [(n, tuple(frames)) for n, frames in rows[f"{size}-{mode}"]]
+                for size in ("4kib", "8mib") for mode in ("plain", "encrypted")}
     return {(size, mode): read_cpu_stacks(directory / f"{size}-{mode}.stacks.gz")
             for size in ("4kib", "8mib") for mode in ("plain", "encrypted")}
 

@@ -54,3 +54,10 @@ next-env.d.ts
 /.jupyter_ystore.db*
 .ipynb_checkpoints/
 __pycache__/
+
+# Published as benchmark release assets
+*.prof
+*.pb.gz
+*.stacks.gz
+/raw-captures.zip
+/notebook-files.zip
