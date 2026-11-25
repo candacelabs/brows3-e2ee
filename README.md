@@ -65,9 +65,9 @@ Traditional S3 tools often suffer from latency when navigating deep folder struc
 
 ### Client-side encrypted buckets
 
-Choose **Yes, create** in the bucket creation dialog to create a protected bucket with a private display name and passphrase. Unlock the bucket to list folders, upload an encrypted file, or authenticate and download a file to a new local destination. Each file can be up to 1 GiB. The storage provider can see object names and sizes.
+Choose **Yes, create** in the bucket creation dialog to create a protected bucket with a private display name and passphrase. Unlock the bucket to list folders, upload an encrypted file, or authenticate and download a file to a new local destination. Each file can be up to 1 GiB. Brows3 sends opaque object identifiers, encrypted metadata, and bodies padded to power-of-two size classes with a 4 KiB minimum. For example, 5 MiB and 7 MiB uploads have the same stored length. The provider can observe the class, request timing and object count.
 
-Keep the passphrase and the bucket’s `.brows3/key-v1` object. Brows3 needs both to recover the file-encryption key. Sessions expire after 15 minutes and can also be locked manually. The [profiling notebook](docs/benchmarks/encryption-before-wire.ipynb) measures preparation from encryption entry to the signed PUT handoff.
+Keep the passphrase and the bucket’s `.brows3/key-v1` object. Brows3 needs both to recover the file-encryption key. Buckets created by the earlier contents-only prototype use an incompatible descriptor. Re-import retained local files into a newly created protected bucket to use encrypted filenames. Earlier provider records may already include those names. Sessions expire after 15 minutes and can also be locked manually. The [profiling notebook](docs/benchmarks/encryption-before-wire.ipynb) measures preparation from encryption entry to the signed PUT handoff.
 
 ### Rich Previews & Editing
 - **Built-in Editor**: Powered by **Monaco (VS Code's Engine)**. Edit text, JSON, and code files directly in S3.

@@ -2,16 +2,21 @@ use super::profiles::ProfileState;
 use super::transfer::{require_active_profile, validate_path};
 use crate::error::{AppError, Result};
 use crate::s3::{plan_multipart_upload, MultipartUploadGuard, S3State, MULTIPART_UPLOAD_THRESHOLD};
+use crate::transfer::object_privacy::{self, Record};
 use crate::transfer::{bucket_crypto, download::DownloadDestination, envelope};
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::{primitives::ByteStream, Client};
 use aws_smithy_types::byte_stream::Length;
-use std::io::{self, Seek};
+use std::io::{self, Read, Seek};
 use std::path::Path;
 use tauri::State;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Semaphore;
 use zeroize::Zeroizing;
+
+#[cfg(test)]
+#[path = "test_s3/private_wire.rs"]
+mod private_wire;
 
 #[cfg(test)]
 #[path = "test_s3/protected_profile.rs"]
@@ -92,33 +97,67 @@ async fn upload_with_start(
     encryption_started: impl FnOnce() + Send + 'static,
 ) -> Result<()> {
     validate(path)?;
-    let context = bucket_crypto::context(bucket, key).map_err(|_| failed())?;
+    let name = key.to_owned();
+    let bucket_name = bucket.to_owned();
     let _permit = TRANSFERS
         .try_acquire()
         .map_err(|_| AppError::ConfigError("Another encrypted transfer is active".into()))?;
     let path = path.to_owned();
-    let file = tokio::task::spawn_blocking(move || -> io::Result<_> {
-        if !path.is_file() {
-            return Err(io::Error::other("Not a file"));
-        }
-        let source = std::fs::File::open(path)?;
-        let meta = source.metadata()?;
-        if !meta.is_file() || meta.len() > envelope::MAX_PLAIN {
-            return Err(io::Error::other("File exceeds limit"));
-        }
-        let mut ciphertext = tempfile::tempfile()?;
-        encryption_started();
-        envelope::encrypt_object(source, &mut ciphertext, &secret, &context)?;
-        ciphertext.rewind()?;
-        Ok(ciphertext)
-    })
-    .await
-    .map_err(|_| failed())?
-    .map_err(|_| failed())?;
+    let (file, id, sealed_record, checksums) =
+        tokio::task::spawn_blocking(move || -> io::Result<_> {
+            if !path.is_file() {
+                return Err(io::Error::other("Not a file"));
+            }
+            let source = std::fs::File::open(path)?;
+            let meta = source.metadata()?;
+            if !meta.is_file() || meta.len() > envelope::MAX_PLAIN {
+                return Err(io::Error::other("File exceeds limit"));
+            }
+            let mut ciphertext = tempfile::tempfile()?;
+            encryption_started();
+            let id = object_privacy::address(&secret, &bucket_name, &name)?;
+            let record = Record {
+                name,
+                size: meta.len(),
+            };
+            let sealed_record = record.seal(&secret, &bucket_name, &id)?;
+            let context = object_privacy::body_context(&bucket_name, &id, &sealed_record);
+            record.encrypt_body(source, &mut ciphertext, &secret, &context)?;
+            ciphertext.rewind()?;
+            let size = ciphertext.metadata()?.len();
+            let lengths = if size >= MULTIPART_UPLOAD_THRESHOLD {
+                plan_multipart_upload(size)
+                    .map_err(io::Error::other)?
+                    .parts
+                    .into_iter()
+                    .map(|p| p.length)
+                    .collect()
+            } else {
+                vec![size]
+            };
+            let mut checksums = Vec::with_capacity(lengths.len());
+            use base64::{engine::general_purpose::STANDARD, Engine};
+            use sha2::{Digest, Sha256};
+            for length in lengths {
+                let mut hash = Sha256::new();
+                if io::copy(&mut (&mut ciphertext).take(length), &mut hash)? != length {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "Incomplete staged ciphertext",
+                    ));
+                }
+                checksums.push(STANDARD.encode(hash.finalize()));
+            }
+            ciphertext.rewind()?;
+            Ok((ciphertext, id, sealed_record, checksums))
+        })
+        .await
+        .map_err(|_| failed())?
+        .map_err(|_| failed())?;
     let size = file.metadata().map_err(|_| failed())?.len();
     let file = tokio::fs::File::from_std(file);
     if size >= MULTIPART_UPLOAD_THRESHOLD {
-        return multipart(client, bucket, key, file, size).await;
+        return multipart(client, bucket, &id, file, size, &sealed_record, checksums).await;
     }
     let body = ByteStream::read_from()
         .file(file)
@@ -128,7 +167,9 @@ async fn upload_with_start(
     client
         .put_object()
         .bucket(bucket)
-        .key(key)
+        .key(id)
+        .checksum_sha256(checksums.into_iter().next().ok_or_else(failed)?)
+        .metadata(object_privacy::HEADER, sealed_record)
         .if_none_match("*")
         .content_type("application/octet-stream")
         .body(body)
@@ -144,10 +185,17 @@ async fn multipart(
     key: &str,
     file: tokio::fs::File,
     size: u64,
+    sealed_record: &str,
+    checksums: Vec<String>,
 ) -> Result<()> {
     let plan = plan_multipart_upload(size)?;
+    if checksums.len() != plan.parts.len() {
+        return Err(failed());
+    }
     let created = client
         .create_multipart_upload()
+        .checksum_algorithm(aws_sdk_s3::types::ChecksumAlgorithm::Sha256)
+        .metadata(object_privacy::HEADER, sealed_record)
         .bucket(bucket)
         .key(key)
         .content_type("application/octet-stream")
@@ -158,7 +206,7 @@ async fn multipart(
     let mut guard = MultipartUploadGuard::new(client.clone(), bucket, key, upload_id);
     let result: Result<()> = async {
         let mut completed = Vec::with_capacity(plan.parts.len());
-        for part in plan.parts {
+        for (part, checksum) in plan.parts.into_iter().zip(checksums) {
             let reader = file.try_clone().await.map_err(|_| failed())?;
             let body = ByteStream::read_from()
                 .file(reader)
@@ -169,6 +217,7 @@ async fn multipart(
                 .map_err(|_| failed())?;
             let response = client
                 .upload_part()
+                .checksum_sha256(&checksum)
                 .bucket(bucket)
                 .key(key)
                 .upload_id(guard.upload_id())
@@ -180,6 +229,7 @@ async fn multipart(
                 .map_err(|_| failed())?;
             completed.push(
                 CompletedPart::builder()
+                    .checksum_sha256(checksum)
                     .part_number(part.number)
                     .e_tag(response.e_tag().ok_or_else(failed)?)
                     .build(),
@@ -218,7 +268,7 @@ pub(crate) async fn download(
     secret: envelope::Key,
 ) -> Result<()> {
     validate(path)?;
-    let context = bucket_crypto::context(bucket, key).map_err(|_| failed())?;
+    let id = object_privacy::address(&secret, bucket, key).map_err(|_| failed())?;
     let _permit = TRANSFERS
         .try_acquire()
         .map_err(|_| AppError::ConfigError("Another encrypted transfer is active".into()))?;
@@ -226,12 +276,26 @@ pub(crate) async fn download(
     let response = client
         .get_object()
         .bucket(bucket)
-        .key(key)
+        .key(&id)
         .send()
         .await
         .map_err(|_| failed())?;
+    let encoded = response
+        .metadata()
+        .and_then(|m| m.get(object_privacy::HEADER))
+        .ok_or_else(failed)?;
+    let record = Record::open(&secret, bucket, &id, encoded).map_err(|_| failed())?;
+    let context = object_privacy::body_context(bucket, &id, encoded);
     let expected = response.content_length();
-    receive(destination, response.body, expected, secret, context).await
+    receive(
+        destination,
+        response.body,
+        expected,
+        secret,
+        context,
+        record,
+    )
+    .await
 }
 
 async fn receive(
@@ -240,8 +304,10 @@ async fn receive(
     expected: Option<i64>,
     secret: envelope::Key,
     context: Vec<u8>,
+    record: Record,
 ) -> Result<()> {
-    if expected.is_some_and(|len| !(0..=envelope::MAX_CIPHER as i64).contains(&len)) {
+    let stored_size = record.stored_size().map_err(|_| failed())?;
+    if expected.is_some_and(|len| len != stored_size as i64) {
         return Err(failed());
     }
     let mut cipher = tokio::fs::File::from_std(tempfile::tempfile().map_err(|_| failed())?);
@@ -250,27 +316,28 @@ async fn receive(
         let chunk = chunk.map_err(|_| failed())?;
         size = size
             .checked_add(chunk.len() as u64)
-            .filter(|len| *len <= envelope::MAX_CIPHER)
+            .filter(|len| *len <= stored_size)
             .ok_or_else(failed)?;
         cipher.write_all(&chunk).await.map_err(|_| failed())?;
     }
-    if expected.is_some_and(|len| len != size as i64) {
+    if size != stored_size {
         return Err(failed());
     }
     cipher.rewind().await.map_err(|_| failed())?;
     let mut cipher = cipher.into_std().await;
-    let (mut cipher, secret, context) = tokio::task::spawn_blocking(move || -> io::Result<_> {
-        envelope::decrypt_object(&mut cipher, io::sink(), &secret, &context)?;
-        cipher.rewind()?;
-        Ok((cipher, secret, context))
-    })
-    .await
-    .map_err(|_| failed())?
-    .map_err(|_| failed())?;
+    let (mut cipher, secret, context, record) =
+        tokio::task::spawn_blocking(move || -> io::Result<_> {
+            record.decrypt_body(&mut cipher, io::sink(), &secret, &context)?;
+            cipher.rewind()?;
+            Ok((cipher, secret, context, record))
+        })
+        .await
+        .map_err(|_| failed())?
+        .map_err(|_| failed())?;
     let mut pending = destination.begin_private().map_err(|_| failed())?;
     let mut writer = pending.take_blocking_writer().await.map_err(|_| failed())?;
     let pending = tokio::task::spawn_blocking(move || -> io::Result<_> {
-        envelope::decrypt_object(&mut cipher, &mut writer, &secret, &context)?;
+        record.decrypt_body(&mut cipher, &mut writer, &secret, &context)?;
         writer.sync_all()?;
         drop(writer);
         Ok(pending)
@@ -344,7 +411,9 @@ async fn read_descriptor(client: &Client, bucket: &str) -> Result<Vec<u8>> {
         }
         bytes.extend_from_slice(&chunk);
     }
-    if bytes.len() != size || bucket_crypto::physical_name(&bytes) != bucket {
+    if !bucket_crypto::is_current_descriptor(&bytes)
+        || bucket_crypto::physical_name(&bytes) != bucket
+    {
         return Err(failed());
     }
     Ok(bytes)
@@ -534,27 +603,131 @@ pub(crate) async fn transfer_with_client(
     }
 }
 
-pub(super) async fn authorize_listing(
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn list_protected(
     profiles: &ProfileState,
     clients: &S3State,
     profile: &str,
     bucket: &str,
     region: Option<String>,
     token: Option<&str>,
-) -> Result<()> {
-    if !bucket.starts_with(bucket_crypto::PREFIX) {
-        return crate::s3::bucket_mode::require_plain(bucket);
+    prefix: &str,
+    cursor: Option<&str>,
+    max_keys: Option<i32>,
+) -> Result<super::objects::ListObjectsResult> {
+    if prefix.len() > 1024
+        || prefix.contains('\0')
+        || prefix == ".brows3"
+        || prefix.starts_with(".brows3/")
+    {
+        return Err(failed());
     }
     let token = token.ok_or_else(failed)?;
-    let (identity, client) = client(profiles, clients, profile, bucket, region).await?;
-    validate_listing_session(
+    let (identity, client) = client(profiles, clients, profile, bucket, region.clone()).await?;
+    let secret = validate_listing_session(
         &SESSION,
         &identity,
         bucket,
         token,
         descriptor(&client, bucket),
     )
-    .await
+    .await?;
+    let mut page = list_private_page(&client, bucket, prefix, cursor, max_keys, &secret).await?;
+    if !SESSION
+        .lock()
+        .await
+        .as_ref()
+        .is_some_and(|s| s.allows(&identity, bucket, token))
+    {
+        return Err(failed());
+    }
+    page.bucket_region = region;
+    Ok(page)
+}
+
+async fn list_private_page(
+    client: &Client,
+    bucket: &str,
+    prefix: &str,
+    cursor: Option<&str>,
+    max_keys: Option<i32>,
+    secret: &envelope::Key,
+) -> Result<super::objects::ListObjectsResult> {
+    use futures::{stream, StreamExt, TryStreamExt};
+    use std::collections::BTreeSet;
+    let physical_prefix = object_privacy::listing_prefix(secret, bucket, prefix);
+    let cursor = cursor
+        .map(|c| object_privacy::cursor(secret, bucket, prefix, c, false))
+        .transpose()
+        .map_err(|_| failed())?;
+    let listed = client
+        .list_objects_v2()
+        .bucket(bucket)
+        .prefix(physical_prefix)
+        .set_continuation_token(cursor)
+        .max_keys(max_keys.unwrap_or(100).clamp(1, 100))
+        .send()
+        .await
+        .map_err(|_| failed())?;
+    let cursor = listed
+        .next_continuation_token()
+        .map(|c| object_privacy::cursor(secret, bucket, prefix, c, true))
+        .transpose()
+        .map_err(|_| failed())?;
+    if listed.is_truncated() == Some(true) && cursor.is_none() {
+        return Err(failed());
+    }
+    let entries: Vec<crate::s3::S3Object> = stream::iter(listed.contents.unwrap_or_default())
+        .map(|object| async move {
+            let id = object
+                .key()
+                .filter(|id| object_privacy::valid_address(id))
+                .ok_or_else(failed)?;
+            let head = client
+                .head_object()
+                .bucket(bucket)
+                .key(id)
+                .send()
+                .await
+                .map_err(|_| failed())?;
+            let encoded = head
+                .metadata()
+                .and_then(|m| m.get(object_privacy::HEADER))
+                .ok_or_else(failed)?;
+            let record = Record::open(secret, bucket, id, encoded).map_err(|_| failed())?;
+            if head.content_length() != Some(record.stored_size().map_err(|_| failed())? as i64) {
+                return Err(failed());
+            }
+            Ok::<_, AppError>(crate::s3::S3Object {
+                key: record.name,
+                size: record.size as i64,
+                last_modified: object.last_modified().map(ToString::to_string),
+                storage_class: object.storage_class().map(|c| c.as_str().to_owned()),
+            })
+        })
+        .buffer_unordered(8)
+        .try_collect()
+        .await?;
+    let mut folders = BTreeSet::new();
+    let mut objects = Vec::new();
+    for entry in entries {
+        if let Some(rest) = entry.key.strip_prefix(prefix) {
+            if let Some((folder, _)) = rest.split_once('/') {
+                folders.insert(format!("{prefix}{folder}/"));
+            } else if !rest.is_empty() {
+                objects.push(entry);
+            }
+        }
+    }
+    objects.sort_by(|a, b| a.key.cmp(&b.key));
+    Ok(super::objects::ListObjectsResult {
+        objects,
+        common_prefixes: folders.into_iter().collect(),
+        is_truncated: cursor.is_some(),
+        next_continuation_token: cursor,
+        prefix: prefix.to_owned(),
+        bucket_region: None,
+    })
 }
 
 async fn validate_listing_session(
@@ -563,7 +736,7 @@ async fn validate_listing_session(
     bucket: &str,
     token: &str,
     check_descriptor: impl std::future::Future<Output = Result<Vec<u8>>>,
-) -> Result<()> {
+) -> Result<envelope::Key> {
     let matches = |session: &Session| session.allows(identity, bucket, token);
     if !sessions.lock().await.as_ref().is_some_and(matches) {
         return Err(failed());
@@ -579,7 +752,7 @@ async fn validate_listing_session(
         slot.take();
         return Err(error);
     }
-    Ok(())
+    Ok(slot.as_ref().ok_or_else(failed)?.secret.clone())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -749,7 +922,7 @@ mod tests {
         for request in &observed {
             assert!(request.starts_with("PUT "));
             assert!(request.lines().next().unwrap().contains(&bucket));
-            for marker in [label, pass, payload, "private-file-name-marker"] {
+            for marker in [label, pass, payload, "private-file-name-marker", "user-key"] {
                 assert!(!request.contains(marker));
             }
         }
@@ -759,6 +932,7 @@ mod tests {
                 .lines()
                 .any(|line| line.trim_end() == "if-none-match: *"));
         }
+        private_wire::exercise_upload_list_download().await;
     }
 
     #[tokio::test]
@@ -771,7 +945,13 @@ mod tests {
         let key = envelope::random_key().unwrap();
         let source = vec![0x42; 140_000];
         let mut cipher = Vec::new();
-        envelope::encrypt_object(&source[..], &mut cipher, &key, &context).unwrap();
+        let record = Record {
+            name: "user/file".into(),
+            size: source.len() as u64,
+        };
+        record
+            .encrypt_body(&source[..], &mut cipher, &key, &context)
+            .unwrap();
         let mut corrupt = cipher.clone();
         *corrupt.last_mut().unwrap() ^= 1;
         let mut extended = cipher.clone();
@@ -787,7 +967,8 @@ mod tests {
                 ByteStream::from(invalid),
                 None,
                 key.clone(),
-                context.clone()
+                context.clone(),
+                record.clone()
             )
             .await
             .is_err());
@@ -798,7 +979,8 @@ mod tests {
             ByteStream::from(cipher.clone()),
             None,
             envelope::random_key().unwrap(),
-            context.clone()
+            context.clone(),
+            record.clone()
         )
         .await
         .is_err());
@@ -807,7 +989,8 @@ mod tests {
             ByteStream::from(cipher.clone()),
             Some(1),
             key.clone(),
-            context.clone()
+            context.clone(),
+            record.clone()
         )
         .await
         .is_err());
@@ -818,6 +1001,7 @@ mod tests {
             Some(cipher.len() as i64),
             key.clone(),
             context.clone(),
+            record.clone(),
         )
         .await
         .unwrap();
@@ -831,11 +1015,16 @@ mod tests {
             );
         }
         std::fs::write(&path, b"keep original").unwrap();
-        assert!(
-            receive(destination(), ByteStream::from(cipher), None, key, context)
-                .await
-                .is_err()
-        );
+        assert!(receive(
+            destination(),
+            ByteStream::from(cipher),
+            None,
+            key,
+            context,
+            record
+        )
+        .await
+        .is_err());
         assert_eq!(std::fs::read(path).unwrap(), b"keep original");
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }

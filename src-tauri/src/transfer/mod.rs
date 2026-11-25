@@ -159,3 +159,5 @@ mod tests {
         assert_eq!(job.profile_id, "profile-a");
     }
 }
+
+pub(crate) mod object_privacy;

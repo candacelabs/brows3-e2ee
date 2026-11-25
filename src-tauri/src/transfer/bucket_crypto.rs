@@ -6,10 +6,15 @@ use zeroize::Zeroizing;
 pub(crate) const PREFIX: &str = "b3e1-";
 pub(crate) const DESCRIPTOR_KEY: &str = ".brows3/key-v1";
 const PAYLOAD_BYTES: usize = 32 + 1 + 128;
-pub(crate) const DESCRIPTOR_BYTES: usize = 48 + PAYLOAD_BYTES + 17;
+const VERSION: &[u8; 8] = b"B3BUCK\0\x02";
+pub(crate) const DESCRIPTOR_BYTES: usize = VERSION.len() + 48 + PAYLOAD_BYTES + 17;
 
 fn invalid() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "Protected bucket unavailable")
+}
+
+pub(crate) fn is_current_descriptor(bytes: &[u8]) -> bool {
+    bytes.len() == DESCRIPTOR_BYTES && bytes.starts_with(VERSION)
 }
 
 pub(crate) fn physical_name(descriptor: &[u8]) -> String {
@@ -44,6 +49,7 @@ pub(crate) fn descriptor(label: &str, pass: &str) -> io::Result<Vec<u8>> {
     payload[32] = label.len() as u8;
     payload[33..33 + label.len()].copy_from_slice(label.as_bytes());
     let mut cipher = Vec::with_capacity(DESCRIPTOR_BYTES);
+    cipher.extend_from_slice(VERSION);
     envelope::encrypt(&payload[..], &mut cipher, pass)?;
     Ok(cipher)
 }
@@ -54,7 +60,8 @@ pub(crate) fn unlock(bucket: &str, descriptor: &[u8], pass: &str) -> io::Result<
     }
     let mut payload = Zeroizing::new([0; PAYLOAD_BYTES]);
     let mut writer = &mut payload[..];
-    envelope::decrypt(descriptor, &mut writer, pass)?;
+    let sealed = descriptor.strip_prefix(VERSION).ok_or_else(invalid)?;
+    envelope::decrypt(sealed, &mut writer, pass)?;
     if !writer.is_empty() {
         return Err(invalid());
     }

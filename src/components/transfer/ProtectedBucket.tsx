@@ -55,7 +55,7 @@ function ProtectedFiles({ scope, sessionToken, expiresAtMs, onInvalidate, initia
   }
 
   return <Stack spacing={2}>
-    <Typography>Files uploaded here are encrypted. Names and sizes are visible. Files written by other clients are not verified until downloaded. Existing objects and destination files are never replaced.</Typography>
+    <Typography>Brows3 encrypts contents, names, paths, and exact sizes on this device. Padded upload lengths reveal a size range. Existing objects and destination files are never replaced.</Typography>
     <Typography sx={{ overflowWrap: 'anywhere' }}>Location: /{prefix}</Typography>
     <Stack direction="row" spacing={1}>
       <Button variant="contained" disabled={!!activity} onClick={() => transfer({ mode: 'upload', prefix })}>Upload</Button>

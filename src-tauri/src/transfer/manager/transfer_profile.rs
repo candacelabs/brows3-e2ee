@@ -16,6 +16,7 @@ pub(crate) struct Request {
 pub(crate) async fn measure<T, Setup, Ready, F, Fut, V, Check>(
     protected: bool,
     setup: Setup,
+    stored_key: impl Fn(&str, &str, &T) -> String,
     transfer: F,
     verify: V,
 ) where
@@ -105,7 +106,7 @@ pub(crate) async fn measure<T, Setup, Ready, F, Fut, V, Check>(
                     let object = client
                         .get_object()
                         .bucket(&bucket)
-                        .key(&key)
+                        .key(stored_key(&bucket, &key, &context))
                         .send()
                         .await
                         .unwrap();
@@ -134,7 +135,7 @@ pub(crate) async fn measure<T, Setup, Ready, F, Fut, V, Check>(
             client
                 .delete_object()
                 .bucket(&bucket)
-                .key(&key)
+                .key(stored_key(&bucket, &key, &context))
                 .send()
                 .await
                 .unwrap();
@@ -171,6 +172,7 @@ async fn profile_plain_single_file() {
             client.create_bucket().bucket(&bucket).send().await.unwrap();
             (bucket, ())
         },
+        |_, key, ()| key.to_owned(),
         |request, ()| async move {
             request
                 .manager

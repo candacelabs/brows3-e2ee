@@ -14,8 +14,9 @@ const CHUNK: usize = 64 * 1024;
 const OVERHEAD: usize = sodium::crypto_secretstream_xchacha20poly1305_ABYTES as usize;
 const FINAL: u8 = sodium::crypto_secretstream_xchacha20poly1305_TAG_FINAL as u8;
 pub(crate) const MAX_PLAIN: u64 = 1024 * 1024 * 1024;
-pub(crate) const MAX_CIPHER: u64 =
-    32 + MAX_PLAIN + (MAX_PLAIN / CHUNK as u64 + 1) * OVERHEAD as u64;
+pub(crate) const fn cipher_size(size: u64) -> u64 {
+    32 + size + (size / CHUNK as u64 + 1) * OVERHEAD as u64
+}
 pub(crate) type Key = Zeroizing<[u8; 32]>;
 
 struct Stream(Box<sodium::crypto_secretstream_xchacha20poly1305_state>);

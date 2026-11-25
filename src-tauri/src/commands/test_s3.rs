@@ -43,6 +43,10 @@ pub async fn scripted_client(
     responses: Vec<String>,
 ) -> (Client, tokio::task::JoinHandle<Vec<String>>) {
     let (endpoint, server) = scripted_endpoint(responses).await;
+    (client_for_endpoint(endpoint), server)
+}
+
+pub fn client_for_endpoint(endpoint: String) -> Client {
     let config = aws_sdk_s3::config::Builder::new()
         .behavior_version_latest()
         .region(aws_sdk_s3::config::Region::new("us-east-1"))
@@ -57,7 +61,7 @@ pub async fn scripted_client(
         .force_path_style(true)
         .retry_config(aws_sdk_s3::config::retry::RetryConfig::standard().with_max_attempts(1))
         .build();
-    (Client::from_conf(config), server)
+    Client::from_conf(config)
 }
 
 pub fn response(status: u16, headers: &str, body: &str) -> String {

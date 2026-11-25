@@ -277,23 +277,22 @@ pub async fn list_objects(
     profile_state: State<'_, ProfileState>,
     s3_state: State<'_, S3State>,
 ) -> Result<ListObjectsResult> {
-    super::encrypted::authorize_listing(
-        &profile_state,
-        &s3_state,
-        &expected_profile_id,
-        &bucket_name,
-        bucket_region.clone(),
-        session_token.as_deref(),
-    )
-    .await?;
-    let protected = crate::transfer::bucket_crypto::physical(&bucket_name);
-    let reserved = |key: &str| key == ".brows3" || key.starts_with(".brows3/");
-    if protected && prefix.as_deref().is_some_and(reserved) {
-        return Err(crate::error::AppError::ConfigError(
-            "Reserved bucket metadata".into(),
-        ));
+    if bucket_name.starts_with(crate::transfer::bucket_crypto::PREFIX) {
+        return super::encrypted::list_protected(
+            &profile_state,
+            &s3_state,
+            &expected_profile_id,
+            &bucket_name,
+            bucket_region,
+            session_token.as_deref(),
+            prefix.as_deref().unwrap_or(""),
+            continuation_token.as_deref(),
+            max_keys,
+        )
+        .await;
     }
-    let mut page = list_page(
+    crate::s3::bucket_mode::require_plain(&bucket_name)?;
+    list_page(
         bucket_name,
         bucket_region,
         prefix,
@@ -307,12 +306,7 @@ pub async fn list_objects(
         profile_state,
         s3_state,
     )
-    .await?;
-    if protected {
-        page.objects.retain(|object| !reserved(&object.key));
-        page.common_prefixes.retain(|name| !reserved(name));
-    }
-    Ok(page)
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]

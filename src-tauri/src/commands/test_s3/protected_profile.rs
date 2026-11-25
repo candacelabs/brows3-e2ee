@@ -23,7 +23,13 @@ async fn session(client: &Client, bucket: &str, pass: &str) -> crate::error::Res
     .map(|unlocked| unlocked.session_token)
 }
 
-async fn assert_refused(client: &Client, bucket: &str, token: &str, reason: &str) {
+async fn assert_refused(
+    client: &Client,
+    bucket: &str,
+    token: &str,
+    reason: &str,
+    secret: &crate::transfer::envelope::Key,
+) {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("source");
     let target = root.path().join("target");
@@ -53,7 +59,7 @@ async fn assert_refused(client: &Client, bucket: &str, token: &str, reason: &str
     let listing = client
         .list_objects_v2()
         .bucket(bucket)
-        .prefix(key)
+        .prefix(crate::transfer::object_privacy::address(secret, bucket, key).unwrap())
         .send()
         .await
         .unwrap();
@@ -117,6 +123,7 @@ async fn profile_protected_single_file() {
                 .await
                 .unwrap();
             client.delete_bucket().bucket(other).send().await.unwrap();
+            let own_secret = unlock(&bucket, &bytes, PASSPHRASE).unwrap().0;
             let revoked = session(&client, &bucket, PASSPHRASE).await.unwrap();
             let root = tempfile::tempdir().unwrap();
             let probe = root.path().join("probe");
@@ -133,7 +140,7 @@ async fn profile_protected_single_file() {
             .await
             .unwrap();
             lock_encrypted_bucket(revoked.clone()).await.unwrap();
-            assert_refused(&client, &bucket, &revoked, "locked").await;
+            assert_refused(&client, &bucket, &revoked, "locked", &own_secret).await;
             let token = session(&client, &bucket, PASSPHRASE).await.unwrap();
             client
                 .delete_object()
@@ -142,7 +149,7 @@ async fn profile_protected_single_file() {
                 .send()
                 .await
                 .unwrap();
-            assert_refused(&client, &bucket, &token, "missing-descriptor").await;
+            assert_refused(&client, &bucket, &token, "missing-descriptor", &own_secret).await;
             client
                 .put_object()
                 .bucket(&bucket)
@@ -160,7 +167,7 @@ async fn profile_protected_single_file() {
                 .send()
                 .await
                 .unwrap();
-            assert_refused(&client, &bucket, &token, "replaced-descriptor").await;
+            assert_refused(&client, &bucket, &token, "replaced-descriptor", &own_secret).await;
             client
                 .put_object()
                 .bucket(&bucket)
@@ -172,7 +179,14 @@ async fn profile_protected_single_file() {
             client
                 .delete_object()
                 .bucket(&bucket)
-                .key("read-probe.bin")
+                .key(
+                    crate::transfer::object_privacy::address(
+                        &own_secret,
+                        &bucket,
+                        "read-probe.bin",
+                    )
+                    .unwrap(),
+                )
                 .send()
                 .await
                 .unwrap();
@@ -182,9 +196,12 @@ async fn profile_protected_single_file() {
                 "BROWS3_UNLOCK {{\"elapsed_ns\":{}}}",
                 start.elapsed().as_nanos()
             );
-            (bucket, (token, other_secret))
+            (bucket, (token, other_secret, own_secret))
         },
-        |request, (token, _)| async move {
+        |bucket, name, (_, _, secret)| {
+            crate::transfer::object_privacy::address(secret, bucket, name).unwrap()
+        },
+        |request, (token, _, _)| async move {
             let job = request.job;
             let path = Path::new(&job.local_path);
             transfer_with_client(
@@ -198,7 +215,7 @@ async fn profile_protected_single_file() {
             )
             .await
         },
-        |client, bucket, key, target, (_, wrong_key)| async move {
+        |client, bucket, key, target, (_, wrong_key, _)| async move {
             let original = std::fs::read(&target).unwrap();
             let vacant = target.with_extension("not-created");
             for destination in [&vacant, &target] {
