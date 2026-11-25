@@ -7803,7 +7803,7 @@ a.anchor-link {
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p><a href="https://www.brows3.app/">Brows3</a></p>
-<h1 id="Brows3-E2EE">Brows3 E2EE<a class="anchor-link" href="#Brows3-E2EE">¶</a></h1><p><a href="encryption-before-wire.ipynb" download>Download notebook</a> · <a href="raw-captures.zip" download>Download raw CPU profiles</a> · <a href="notebook-files.zip" download>Download runnable notebook (x86-64 Linux)</a></p><h2 id="Encryption-before-the-first-byte-goes-on-the-wire">Encryption before the first byte goes on the wire<a class="anchor-link" href="#Encryption-before-the-first-byte-goes-on-the-wire">¶</a></h2><p>Where does Brows3 spend CPU while preparing a signed S3 upload? The plots below use sampled call stacks from the production Rust upload path. The encrypted measurement starts before Brows3 derives the opaque object key and encrypts the path and exact byte count. It includes padding, payload encryption, ciphertext staging, SHA-256 checksumming and AWS request signing. The bucket is already unlocked and the files are open. The plain window opens at the ordinary uploader’s entry. Both close at the AWS SDK pre-transmit hook, which cancels the signed PUT before dispatch.</p>
+<h1 id="Brows3-E2EE">Brows3 E2EE<a class="anchor-link" href="#Brows3-E2EE">¶</a></h1><p><a href="encryption-before-wire.ipynb" download>Download notebook</a> · <a href="https://github.com/candacelabs/brows3-e2ee/releases/download/benchmark-encryption-2026-11-25/raw-captures.zip">Download raw CPU profiles</a> · <a href="https://github.com/candacelabs/brows3-e2ee/releases/download/benchmark-encryption-2026-11-25/notebook-files.zip">Download runnable notebook (x86-64 Linux)</a></p><h2 id="Encryption-before-the-first-byte-goes-on-the-wire">Encryption before the first byte goes on the wire<a class="anchor-link" href="#Encryption-before-the-first-byte-goes-on-the-wire">¶</a></h2><p>Where does Brows3 spend CPU while preparing a signed S3 upload? The plots below use sampled call stacks from the production Rust upload path. The encrypted measurement starts before Brows3 derives the opaque object key and encrypts the path and exact byte count. It includes padding, payload encryption, ciphertext staging, SHA-256 checksumming and AWS request signing. The bucket is already unlocked and the files are open. The plain window opens at the ordinary uploader’s entry. Both close at the AWS SDK pre-transmit hook, which cancels the signed PUT before dispatch.</p>
 </div>
 </div>
 </div>
@@ -7846,7 +7846,7 @@ a.anchor-link {
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Run-raw-capture">Run raw capture<a class="anchor-link" href="#Run-raw-capture">¶</a></h2><p>The four recorded profiles are included. On x86-64 Linux, extract the <strong>runnable notebook</strong> download and run the command below from the extracted directory. The bundle includes the Rust benchmark, Nix environment and recorded profiles. You can also clone <a href="https://github.com/candacelabs/brows3-e2ee">the Brows3 E2EE repository</a> and run from its root. Set <code>run_raw_capture = True</code> in the next cell, then choose <strong>Run All Cells</strong>. Cargo builds the release test on the first run. Each capture writes to a new directory and the plots read that directory immediately.</p>
+<h2 id="Run-raw-capture">Run raw capture<a class="anchor-link" href="#Run-raw-capture">¶</a></h2><p>The checkout includes the weighted samples for the plots. The <a href="https://github.com/candacelabs/brows3-e2ee/releases/tag/benchmark-encryption-2026-11-25">benchmark prerelease</a> includes all four raw profiles and a runnable notebook archive. On x86-64 Linux, extract the <strong>runnable notebook</strong> download and run the command below from the extracted directory. The bundle includes the Rust benchmark, Nix environment and recorded profiles. You can also clone <a href="https://github.com/candacelabs/brows3-e2ee">the Brows3 E2EE repository</a> and run from its root. Set <code>run_raw_capture = True</code> in the next cell, then choose <strong>Run All Cells</strong>. Cargo builds the release test on the first run. Each capture writes to a new directory and the plots read that directory immediately.</p>
 <div class="highlight"><pre><span></span>nix<span class="w"> </span>develop<span class="w"> </span>.#notebook<span class="w"> </span>-c<span class="w"> </span>jupyter<span class="w"> </span>lab<span class="w"> </span>docs/benchmarks/encryption-before-wire.ipynb
 </pre></div>
 <p>To run the identical collection from the shell, choose an unused output directory.</p>
@@ -7898,7 +7898,7 @@ a.anchor-link {
 <pre>Profile directory: docs/benchmarks/cpu-profile
 2026-11-25T03:07:50Z
 rustc 1.97.1 (8bab26f4f 2026-07-14)
-ab71cfdc93dff2b5e3606fc51fdcee508e4fe6ed
+063cf5090477158af23d1fa665f9d7311712ac08
 Linux 7.2.7+rex-amd64 x86_64
 500 Hz requested, 3 seconds accumulated pre-transmit wall time per profile
 </pre>
@@ -8171,7 +8171,7 @@ Linux 7.2.7+rex-amd64 x86_64
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>2026-11-25T03:10:54.284007+00:00 · AMD Ryzen AI Max+ 395 · Rust 1.97.1
 Linux x86-64, Nix user space · tmpfs, warm source file and anonymous ciphertext file
-Shared host with concurrent build activity.  Source commit ab71cfdc93df.
+Shared host with concurrent build activity.  Source commit 063cf5090477.
 </pre>
 </div>
 </div>
