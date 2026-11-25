@@ -72,7 +72,7 @@
         pname = "brows3";
         inherit (manifest) version;
         src = ./src-tauri;
-        cargoHash = "sha256-HTPk12a9XVuTxp6AV+pfqSPVH66OnY5OaDigiLWM3Xo=";
+        cargoHash = "sha256-1zEgHH1ERseHBTvaa666nkB76iBHwMywjuEtTHe9cTQ=";
         nativeBuildInputs = buildTools ++ [ pkgs.wrapGAppsHook3 ];
         buildInputs = nativeLibraries;
         buildFeatures = [ "custom-protocol" ];

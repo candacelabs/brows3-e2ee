@@ -137,3 +137,107 @@ pub(super) async fn exercise_upload_list_download() {
     assert_eq!(std::fs::read(output).unwrap(), vec![2; sizes[1]]);
     server.await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "stages a 128 MiB padded multipart upload"]
+async fn multipart_sends_only_opaque_keys_and_padded_parts() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use sha2::{Digest, Sha256};
+    use tokio::io::AsyncBufReadExt;
+
+    let bucket = format!("b3e1-{}", "2".repeat(32));
+    let secret = envelope::random_key().unwrap();
+    let name = "private-directory/quarterly-report.bin";
+    let id = object_privacy::address(&secret, &bucket, name).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let client = crate::commands::test_s3::client_for_endpoint(format!(
+        "http://{}",
+        listener.local_addr().unwrap()
+    ));
+    let server = tokio::spawn(async move {
+        let mut part_lengths = Vec::new();
+        for step in 0..4 {
+            let (mut socket, _) =
+                tokio::time::timeout(std::time::Duration::from_secs(45), listener.accept())
+                    .await
+                    .unwrap()
+                    .unwrap();
+            let mut stream = tokio::io::BufReader::new(&mut socket);
+            let mut headers = String::new();
+            while !headers.ends_with("\r\n\r\n") {
+                assert!(stream.read_line(&mut headers).await.unwrap() > 0);
+            }
+            assert!(headers.lines().next().unwrap().contains(&id));
+            assert!(
+                !headers.contains("private-directory") && !headers.contains("quarterly-report")
+            );
+            let value = |key: &str| {
+                headers
+                    .lines()
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(n, _)| n.eq_ignore_ascii_case(key))
+                    .map(|(_, v)| v.trim())
+            };
+            let length = value("content-length")
+                .unwrap_or("0")
+                .parse::<usize>()
+                .unwrap();
+            let mut remaining = length;
+            let mut hash = Sha256::new();
+            let mut buffer = vec![0; 65536];
+            while remaining > 0 {
+                let limit = buffer.len().min(remaining);
+                let n = tokio::time::timeout(
+                    std::time::Duration::from_secs(15),
+                    stream.read(&mut buffer[..limit]),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+                assert!(n > 0);
+                hash.update(&buffer[..n]);
+                remaining -= n;
+            }
+            let (extra, body) = match step {
+                0 => {
+                    assert!(
+                        headers.starts_with("POST ")
+                            && value("x-amz-meta-brows3-record-v2").is_some()
+                    );
+                    ("","<InitiateMultipartUploadResult><UploadId>fixture-upload</UploadId></InitiateMultipartUploadResult>")
+                }
+                1 | 2 => {
+                    assert!(headers.starts_with("PUT "));
+                    assert_eq!(
+                        value("x-amz-checksum-sha256"),
+                        Some(STANDARD.encode(hash.finalize()).as_str())
+                    );
+                    part_lengths.push(length as u64);
+                    ("ETag: \"opaque-part\"\r\n", "")
+                }
+                _ => {
+                    assert!(headers.starts_with("POST "));
+                    assert_eq!(value("if-none-match"), Some("*"));
+                    ("","<CompleteMultipartUploadResult><ETag>complete</ETag></CompleteMultipartUploadResult>")
+                }
+            };
+            let reply = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n{extra}\r\n{body}",
+                body.len()
+            );
+            socket.write_all(reply.as_bytes()).await.unwrap();
+        }
+        part_lengths
+    });
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("local-source");
+    std::fs::File::create(&file)
+        .unwrap()
+        .set_len(65 << 20)
+        .unwrap();
+    upload(&client, &bucket, name, &file, secret).await.unwrap();
+    assert_eq!(
+        server.await.unwrap(),
+        [128 << 20, envelope::cipher_size(128 << 20) - (128 << 20)]
+    );
+}
