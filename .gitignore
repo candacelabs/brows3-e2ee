@@ -45,3 +45,6 @@ next-env.d.ts
 
 # Monaco editor (auto-generated from node_modules during build)
 /public/monaco-editor/
+
+# Nix build output
+/result
