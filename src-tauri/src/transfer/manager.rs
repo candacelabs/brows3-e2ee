@@ -1037,7 +1037,9 @@ impl TransferManager {
     ) -> crate::error::Result<()> {
         super::controls::validate_bandwidth(job.bandwidth_limit.unwrap_or(0))?;
         crate::s3::bucket_mode::require_plain(&job.bucket)?;
-        if let Some(source) = &job.remote_source { crate::s3::bucket_mode::require_plain(&source.bucket)?; }
+        if let Some(source) = &job.remote_source {
+            crate::s3::bucket_mode::require_plain(&source.bucket)?;
+        }
         if let Some(source) = &job.url_import {
             if source.profile_identity != destination.cache_identity() {
                 return Err(crate::error::AppError::ConfigError(

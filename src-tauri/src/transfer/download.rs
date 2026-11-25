@@ -106,7 +106,12 @@ pub struct PendingDownload {
 
 impl PendingDownload {
     pub(crate) async fn take_blocking_writer(&mut self) -> io::Result<std::fs::File> {
-        Ok(self.file.take().ok_or_else(|| io::Error::other("Download is closed"))?.into_std().await)
+        Ok(self
+            .file
+            .take()
+            .ok_or_else(|| io::Error::other("Download is closed"))?
+            .into_std()
+            .await)
     }
 
     pub async fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {

@@ -277,13 +277,37 @@ pub async fn list_objects(
     profile_state: State<'_, ProfileState>,
     s3_state: State<'_, S3State>,
 ) -> Result<ListObjectsResult> {
-    super::encrypted::authorize_listing(&profile_state, &s3_state, &expected_profile_id, &bucket_name, bucket_region.clone(), session_token.as_deref()).await?;
+    super::encrypted::authorize_listing(
+        &profile_state,
+        &s3_state,
+        &expected_profile_id,
+        &bucket_name,
+        bucket_region.clone(),
+        session_token.as_deref(),
+    )
+    .await?;
     let protected = crate::transfer::bucket_crypto::physical(&bucket_name);
     let reserved = |key: &str| key == ".brows3" || key.starts_with(".brows3/");
     if protected && prefix.as_deref().is_some_and(reserved) {
-        return Err(crate::error::AppError::ConfigError("Reserved bucket metadata".into()));
+        return Err(crate::error::AppError::ConfigError(
+            "Reserved bucket metadata".into(),
+        ));
     }
-    let mut page = list_page(bucket_name, bucket_region, prefix, delimiter, continuation_token, max_keys, bypass_cache, sort_field, sort_direction, expected_profile_id, profile_state, s3_state).await?;
+    let mut page = list_page(
+        bucket_name,
+        bucket_region,
+        prefix,
+        delimiter,
+        continuation_token,
+        max_keys,
+        bypass_cache,
+        sort_field,
+        sort_direction,
+        expected_profile_id,
+        profile_state,
+        s3_state,
+    )
+    .await?;
     if protected {
         page.objects.retain(|object| !reserved(&object.key));
         page.common_prefixes.retain(|name| !reserved(name));

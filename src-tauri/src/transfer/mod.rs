@@ -1,5 +1,5 @@
-pub mod controls;
 pub(crate) mod bucket_crypto;
+pub mod controls;
 pub mod download;
 pub(crate) mod envelope;
 pub mod manager;

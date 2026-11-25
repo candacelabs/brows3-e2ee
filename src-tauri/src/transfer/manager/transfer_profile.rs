@@ -18,8 +18,7 @@ pub(crate) async fn measure<T, Setup, Ready, F, Fut, V, Check>(
     setup: Setup,
     transfer: F,
     verify: V,
-)
-where
+) where
     T: Clone,
     Setup: FnOnce(Client) -> Ready,
     Ready: Future<Output = (String, T)>,
@@ -122,7 +121,14 @@ where
             }
             assert_eq!(Sha256::digest(std::fs::read(&target).unwrap()), digest);
             if sample == 5 {
-                verify(client.clone(), bucket.clone(), key.clone(), target.clone(), context.clone()).await;
+                verify(
+                    client.clone(),
+                    bucket.clone(),
+                    key.clone(),
+                    target.clone(),
+                    context.clone(),
+                )
+                .await;
             }
             std::fs::remove_file(target).unwrap();
             client
@@ -144,7 +150,13 @@ where
         }
     }
     if protected {
-        client.delete_object().bucket(&bucket).key(".brows3/key-v1").send().await.unwrap();
+        client
+            .delete_object()
+            .bucket(&bucket)
+            .key(".brows3/key-v1")
+            .send()
+            .await
+            .unwrap();
     }
     client.delete_bucket().bucket(bucket).send().await.unwrap();
 }

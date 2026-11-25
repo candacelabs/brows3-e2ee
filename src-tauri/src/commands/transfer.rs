@@ -109,7 +109,10 @@ fn safe_relative_download_path(key: &str) -> Result<PathBuf> {
     Ok(relative_path)
 }
 
-pub(super) async fn require_active_profile(profile_state: &ProfileState, expected: &str) -> Result<Profile> {
+pub(super) async fn require_active_profile(
+    profile_state: &ProfileState,
+    expected: &str,
+) -> Result<Profile> {
     let profile_manager = profile_state.read().await;
     let profile = profile_manager
         .get_active_profile()
@@ -520,7 +523,9 @@ pub async fn retry_transfer(
 ) -> Result<Option<String>> {
     if let Some(job) = transfer_state.get_job(&job_id).await {
         crate::s3::bucket_mode::require_plain(&job.bucket)?;
-        if let Some(source) = job.remote_source { crate::s3::bucket_mode::require_plain(&source.bucket)?; }
+        if let Some(source) = job.remote_source {
+            crate::s3::bucket_mode::require_plain(&source.bucket)?;
+        }
     }
     if transfer_state
         .get_job(&job_id)

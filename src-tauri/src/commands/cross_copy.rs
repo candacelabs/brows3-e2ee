@@ -79,7 +79,9 @@ pub async fn copy_between_profiles(
     app_handle: AppHandle,
 ) -> Result<usize> {
     crate::s3::bucket_mode::require_plain(&destination_bucket)?;
-    for item in &items { crate::s3::bucket_mode::require_plain(&item.bucket)?; }
+    for item in &items {
+        crate::s3::bucket_mode::require_plain(&item.bucket)?;
+    }
     if items.is_empty()
         || items.len() > 10_000
         || destination_bucket.is_empty()
